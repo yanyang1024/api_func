@@ -1,0 +1,37 @@
+import pandas as pd
+
+def merge_sheets_in_order(
+    input_path: str,
+    output_path: str,
+    sheet_order: list[str],
+    output_sheet_name: str = "总表"
+):
+    # 读取所有子表
+    all_sheets = pd.read_excel(input_path, sheet_name=None)
+
+    # 按指定顺序合并
+    merged_frames = []
+    for sheet_name in sheet_order:
+        if sheet_name not in all_sheets:
+            raise ValueError(f"子表不存在: {sheet_name}")
+        df = all_sheets[sheet_name].copy()
+        df.insert(0, "来源子表", sheet_name)  # 添加来源信息，便于展示清晰
+        merged_frames.append(df)
+
+    # 合并成总表
+    merged_df = pd.concat(merged_frames, ignore_index=True)
+
+    # 写出到新的xlsx
+    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+        merged_df.to_excel(writer, sheet_name=output_sheet_name, index=False)
+
+    return merged_df
+
+if __name__ == "__main__":
+    input_xlsx = r"D:\data\input.xlsx"
+    output_xlsx = r"D:\data\merged.xlsx"
+
+    # 这里按照你指定的子表名称顺序填写
+    order = ["子表A", "子表B", "子表C"]
+
+    merge_sheets_in_order(input_xlsx, output_xlsx, order)

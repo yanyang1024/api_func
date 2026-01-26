@@ -198,19 +198,20 @@ workflow_manager = WorkflowStateManager()
 
 # ==================== 结果处理函数 ====================
 
-def process_tool_results(tool_output: Dict, run_id: str) -> Tuple[str, List]:
+def process_tool_results(tool_output: Dict, run_id: str) -> Tuple[str, List, List]:
     """
     处理工具输出结果，格式化为前端展示
-    返回: (summary_text, display_items)
+    返回: (summary_text, display_images, file_paths)
     """
     if "result" not in tool_output:
-        return tool_output.get("message", "处理完成"), []
+        return tool_output.get("message", "处理完成"), [], []
 
     result = tool_output["result"]
     files = result.get("files", [])
     images = result.get("images", [])
 
-    display_items = []
+    display_images = []
+    file_paths = []
     summary_parts = []
 
     # 处理消息
@@ -221,7 +222,7 @@ def process_tool_results(tool_output: Dict, run_id: str) -> Tuple[str, List]:
         summary_parts.append(f"\n📊 生成了 {len(images)} 个可视化图表：")
         for idx, img in enumerate(images, 1):
             if isinstance(img, Image.Image):
-                display_items.append(gr.Image(value=img, label=f"图表 {idx}", visible=True))
+                display_images.append(img)
                 summary_parts.append(f"  - 图表 {idx}: {img.size[0]}x{img.size[1]} 像素")
             else:
                 summary_parts.append(f"  - 图表 {idx}: [非图片对象]")
@@ -233,7 +234,10 @@ def process_tool_results(tool_output: Dict, run_id: str) -> Tuple[str, List]:
             if os.path.exists(file_path):
                 file_size = os.path.getsize(file_path)
                 file_name = os.path.basename(file_path)
+                file_paths.append(file_path)
                 summary_parts.append(f"  - {file_name} ({file_size} bytes)")
+            else:
+                summary_parts.append(f"  - {os.path.basename(file_path)} [文件不存在]")
 
     # 获取历史信息
     history = workflow_manager.get_history(run_id)
@@ -241,7 +245,7 @@ def process_tool_results(tool_output: Dict, run_id: str) -> Tuple[str, List]:
         summary_parts.append(f"\n💬 对话轮次: {len(history)}")
 
     summary = "\n".join(summary_parts)
-    return summary, display_items
+    return summary, display_images, file_paths
 
 def format_interrupted_response(workflow_info: Dict, run_id: str) -> str:
     """格式化中断状态响应"""
@@ -252,7 +256,7 @@ def format_interrupted_response(workflow_info: Dict, run_id: str) -> str:
 
     return response
 
-def format_completed_response(workflow_info: Dict, run_id: str) -> Tuple[str, List]:
+def format_completed_response(workflow_info: Dict, run_id: str) -> Tuple[str, List, List]:
     """格式化完成状态响应"""
     # 获取解析的参数
     data = workflow_info.get("data", {})
@@ -268,7 +272,8 @@ def format_completed_response(workflow_info: Dict, run_id: str) -> Tuple[str, Li
             response_parts.append(f"  - {key}: {value}")
 
     # 调用相应的工具函数
-    display_items = []
+    all_display_images = []
+    all_file_paths = []
     tool_results = []
 
     # 假设 workflow_info 中包含了需要调用的工具信息
@@ -293,9 +298,10 @@ def format_completed_response(workflow_info: Dict, run_id: str) -> Tuple[str, Li
                 tool_results.append(tool_output)
 
                 # 处理每个工具的结果
-                summary, items = process_tool_results(tool_output, run_id)
+                summary, display_images, file_paths = process_tool_results(tool_output, run_id)
                 response_parts.append(f"\n{summary}")
-                display_items.extend(items)
+                all_display_images.extend(display_images)
+                all_file_paths.extend(file_paths)
 
             except Exception as e:
                 error_msg = f"❌ 工具 {tool_name} 执行失败: {str(e)}"
@@ -303,14 +309,14 @@ def format_completed_response(workflow_info: Dict, run_id: str) -> Tuple[str, Li
                 print(f"[ERROR] {error_msg}")
 
     final_response = "\n".join(response_parts)
-    return final_response, display_items
+    return final_response, all_display_images, all_file_paths
 
 # ==================== 对话处理逻辑 ====================
 
-def process_user_message(user_input: str, history: List) -> Tuple[List, List]:
+def process_user_message(user_input: str, history: List) -> Tuple[List, List, List]:
     """
     处理用户消息的主要逻辑
-    返回: (updated_history, display_items)
+    返回: (updated_history, display_images, file_paths)
     """
     # 检查是否有活跃的工作流
     active_run_id = None
@@ -321,7 +327,8 @@ def process_user_message(user_input: str, history: List) -> Tuple[List, List]:
             active_run_id = run_id
             break
 
-    display_items = []
+    display_images = []
+    file_paths = []
 
     if active_run_id:
         # 有中断的工作流，需要恢复
@@ -348,7 +355,7 @@ def process_user_message(user_input: str, history: List) -> Tuple[List, List]:
 
         elif workflow_info.get("status") == "completed":
             # 完成
-            response, display_items = format_completed_response(workflow_info, active_run_id)
+            response, display_images, file_paths = format_completed_response(workflow_info, active_run_id)
             workflow_manager.add_to_history(active_run_id, "assistant", response)
             history.append([user_input, response])
 
@@ -386,7 +393,7 @@ def process_user_message(user_input: str, history: List) -> Tuple[List, List]:
             history.append([user_input, response])
 
         elif workflow_info.get("status") == "completed":
-            response, display_items = format_completed_response(workflow_info, run_id)
+            response, display_images, file_paths = format_completed_response(workflow_info, run_id)
             workflow_manager.add_to_history(run_id, "assistant", response)
             history.append([user_input, response])
 
@@ -394,7 +401,7 @@ def process_user_message(user_input: str, history: List) -> Tuple[List, List]:
             response = f"⚠️ 未知的工作流状态: {workflow_info.get('status')}"
             history.append([user_input, response])
 
-    return history, display_items
+    return history, display_images, file_paths
 
 def create_gradio_interface():
     """创建 Gradio 界面"""
@@ -483,7 +490,7 @@ def create_gradio_interface():
             if not user_input.strip():
                 return history, [], "请输入消息", {}
 
-            updated_history, display_items = process_user_message(user_input, history)
+            updated_history, display_images, file_paths = process_user_message(user_input, history)
 
             # 更新状态信息
             active_count = sum(
@@ -493,26 +500,14 @@ def create_gradio_interface():
 
             status_msg = f"活跃工作流数: {active_count} | 总对话数: {len(workflow_manager.conversation_history)}"
 
-            # 提取图片用于画廊展示
-            gallery_images = []
-            for item in display_items:
-                if hasattr(item, 'value') and isinstance(item.value, Image.Image):
-                    gallery_images.append(item.value)
+            # display_images 已经是 PIL Image 对象列表，可以直接用于画廊
+            gallery_images = display_images
 
-            # 提取文件路径
-            output_files = []
-            for run_id in workflow_manager.active_workflows:
-                # 这里可以添加逻辑来收集生成的文件
-                pass
+            # file_paths 已经是文件路径列表
+            output_files = file_paths
 
-            # 收集所有输出文件
-            output_dir = "outputs"
-            if os.path.exists(output_dir):
-                output_files = [
-                    os.path.join(output_dir, f)
-                    for f in os.listdir(output_dir)
-                    if os.path.isfile(os.path.join(output_dir, f))
-                ]
+            print(f"\n[DEBUG] 返回 {len(gallery_images)} 个图片")
+            print(f"[DEBUG] 返回 {len(output_files)} 个文件: {output_files}")
 
             return (
                 updated_history,

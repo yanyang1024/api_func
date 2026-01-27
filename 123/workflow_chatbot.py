@@ -11,6 +11,8 @@ import json
 from datetime import datetime
 from PIL import Image
 import io
+import time
+import hashlib
 
 # ==================== 模拟函数区域 ====================
 # 注意：这些是模拟函数，后续请替换为你的实际实现
@@ -168,6 +170,10 @@ class WorkflowStateManager:
     def __init__(self):
         self.active_workflows: Dict[str, Dict] = {}
         self.conversation_history: Dict[str, List[Dict]] = {}
+        # 缓存上一次的工作流信息，用于状态去重
+        self.last_workflow_info: Dict[str, Dict] = {}
+        # 记录最后一次与用户交互的时间
+        self.last_interaction_time: Dict[str, float] = {}
 
     def save_workflow_state(self, run_id: str, state: dict):
         """保存工作流状态"""
@@ -176,6 +182,22 @@ class WorkflowStateManager:
     def get_workflow_state(self, run_id: str) -> Optional[Dict]:
         """获取工作流状态"""
         return self.active_workflows.get(run_id)
+
+    def save_last_workflow_info(self, run_id: str, info: dict):
+        """保存上一次的工作流信息用于比较"""
+        self.last_workflow_info[run_id] = info
+
+    def get_last_workflow_info(self, run_id: str) -> Optional[Dict]:
+        """获取上一次的工作流信息"""
+        return self.last_workflow_info.get(run_id)
+
+    def update_interaction_time(self, run_id: str):
+        """更新最后一次交互时间"""
+        self.last_interaction_time[run_id] = time.time()
+
+    def get_last_interaction_time(self, run_id: str) -> float:
+        """获取最后一次交互时间"""
+        return self.last_interaction_time.get(run_id, 0)
 
     def add_to_history(self, run_id: str, role: str, content: str, metadata: dict = None):
         """添加对话历史"""
@@ -195,6 +217,120 @@ class WorkflowStateManager:
 
 # 全局状态管理器
 workflow_manager = WorkflowStateManager()
+
+# ==================== 辅助函数 ====================
+
+def compare_workflow_info(info1: Dict, info2: Dict) -> bool:
+    """
+    比较两个工作流信息是否相同
+    返回: True 表示相同，False 表示不同
+    """
+    # 将字典转换为 JSON 字符串后计算哈希值进行比较
+    # 排除 timestamp 等可能变化的字段
+    def normalize_info(info: Dict) -> str:
+        filtered = {
+            k: v for k, v in info.items()
+            if k not in ['timestamp', 'query_time']
+        }
+        return json.dumps(filtered, sort_keys=True)
+
+    return normalize_info(info1) == normalize_info(info2)
+
+def should_notify_user(run_id: str, new_info: Dict) -> bool:
+    """
+    判断是否应该通知用户
+    返回: True 表示需要通知，False 表示跳过（因为信息相同）
+    """
+    last_info = workflow_manager.get_last_workflow_info(run_id)
+
+    # 如果是第一次获取信息，需要通知
+    if last_info is None:
+        workflow_manager.save_last_workflow_info(run_id, new_info)
+        workflow_manager.update_interaction_time(run_id)
+        return True
+
+    # 比较新旧信息
+    if compare_workflow_info(last_info, new_info):
+        # 信息相同，不通知用户
+        print(f"[DEBUG] 工作流 {run_id} 信息未变化，跳过通知")
+        return False
+    else:
+        # 信息不同，更新缓存并通知用户
+        workflow_manager.save_last_workflow_info(run_id, new_info)
+        workflow_manager.update_interaction_time(run_id)
+        print(f"[DEBUG] 工作流 {run_id} 信息已变化，通知用户")
+        return True
+
+def check_interrupted_workflows(history: List) -> Tuple[List, List, List]:
+    """
+    定时检查中断的工作流状态
+    这个函数会被 Gradio Timer 定期调用
+    返回: (updated_history, display_images, file_paths)
+    """
+    display_images = []
+    file_paths = []
+    updated_history = history.copy()
+
+    # 查找所有中断的工作流
+    interrupted_run_ids = [
+        run_id for run_id, state in workflow_manager.active_workflows.items()
+        if state.get("status") == "interrupted"
+    ]
+
+    if not interrupted_run_ids:
+        # 没有中断的工作流
+        return updated_history, display_images, file_paths
+
+    print(f"\n[INFO] 定时检查 {len(interrupted_run_ids)} 个中断工作流的状态")
+
+    for run_id in interrupted_run_ids:
+        try:
+            # 获取最新状态
+            workflow_info = get_workflow_info(run_id)
+
+            # 更新工作流状态
+            workflow_manager.save_workflow_state(run_id, workflow_info)
+
+            # 检查是否需要通知用户
+            if not should_notify_user(run_id, workflow_info):
+                # 信息未变化，跳过
+                continue
+
+            # 根据状态生成响应
+            if workflow_info.get("status") == "interrupted":
+                # 仍然中断，生成响应
+                response = format_interrupted_response(workflow_info, run_id)
+
+                # 添加系统提示（不添加到对话历史，避免重复）
+                # 这里可以选择是否要添加到历史中
+                # workflow_manager.add_to_history(run_id, "assistant", response)
+                # updated_history.append([None, response])
+
+                print(f"[INFO] 工作流 {run_id} 仍处于中断状态")
+
+            elif workflow_info.get("status") == "completed":
+                # 完成，生成最终响应
+                response, imgs, files = format_completed_response(workflow_info, run_id)
+
+                workflow_manager.add_to_history(run_id, "assistant", response)
+                updated_history.append([None, response])
+                display_images.extend(imgs)
+                file_paths.extend(files)
+
+                # 更新状态为已完成
+                workflow_manager.save_workflow_state(run_id, {
+                    **workflow_info,
+                    "status": "completed"
+                })
+
+                print(f"[INFO] 工作流 {run_id} 已完成")
+
+        except Exception as e:
+            error_msg = f"❌ 检查工作流 {run_id} 时出错: {str(e)}"
+            print(f"[ERROR] {error_msg}")
+
+    return updated_history, display_images, file_paths
+
 
 # ==================== 结果处理函数 ====================
 
@@ -348,13 +484,22 @@ def process_user_message(user_input: str, history: List) -> Tuple[List, List, Li
 
         # 根据状态生成响应
         if workflow_info.get("status") == "interrupted":
-            # 仍然中断
-            response = format_interrupted_response(workflow_info, active_run_id)
-            workflow_manager.add_to_history(active_run_id, "assistant", response)
-            history.append([user_input, response])
+            # 仍然中断 - 使用状态去重逻辑
+            if should_notify_user(active_run_id, workflow_info):
+                # 信息有变化，通知用户
+                response = format_interrupted_response(workflow_info, active_run_id)
+                workflow_manager.add_to_history(active_run_id, "assistant", response)
+                history.append([user_input, response])
+            else:
+                # 信息未变化，不重复提示
+                print(f"[INFO] 工作流 {active_run_id} 信息未变化，跳过重复提示")
+                # 仍然添加用户消息，但不添加助手响应
+                history.append([user_input, None])
 
         elif workflow_info.get("status") == "completed":
-            # 完成
+            # 完成 - 清除状态缓存，确保完成信息能显示
+            workflow_manager.save_last_workflow_info(active_run_id, {})
+
             response, display_images, file_paths = format_completed_response(workflow_info, active_run_id)
             workflow_manager.add_to_history(active_run_id, "assistant", response)
             history.append([user_input, response])
@@ -388,6 +533,8 @@ def process_user_message(user_input: str, history: List) -> Tuple[List, List, Li
 
         # 根据状态生成响应
         if workflow_info.get("status") == "interrupted":
+            # 使用状态去重逻辑
+            should_notify_user(run_id, workflow_info)  # 初始化状态缓存
             response = format_interrupted_response(workflow_info, run_id)
             workflow_manager.add_to_history(run_id, "assistant", response)
             history.append([user_input, response])
@@ -421,6 +568,7 @@ def create_gradio_interface():
 
         gr.Markdown("# 🤖 工作流对话机器人")
         gr.Markdown("支持与工作流智能体的多轮对话，自动处理中断和恢复状态")
+        gr.Markdown("⚙️ **优化特性：** 中断状态自动刷新，相同信息只提示一次")
 
         with gr.Row():
             with gr.Column(scale=2):
@@ -521,7 +669,37 @@ def create_gradio_interface():
             """清空对话"""
             workflow_manager.active_workflows.clear()
             workflow_manager.conversation_history.clear()
+            workflow_manager.last_workflow_info.clear()
+            workflow_manager.last_interaction_time.clear()
             return [], [], "对话已清空", {}
+
+        # 定时检查中断工作流状态
+        # 每 5 秒检查一次中断的工作流（可根据需要调整间隔时间）
+        timer = gr.Timer(value=5.0)
+
+        def handle_timer_tick(history, gallery_images, file_paths):
+            """处理定时器触发事件"""
+            updated_history, new_images, new_files = check_interrupted_workflows(history)
+
+            # 合并图片和文件
+            all_images = list(gallery_images) + new_images if gallery_images else new_images
+            all_files = list(file_paths) + new_files if file_paths else new_files
+
+            # 更新状态信息
+            active_count = sum(
+                1 for s in workflow_manager.active_workflows.values()
+                if s.get("status") == "interrupted"
+            )
+
+            status_msg = f"活跃工作流数: {active_count} | 总对话数: {len(workflow_manager.conversation_history)}"
+
+            return (
+                updated_history,
+                all_images,
+                all_files,
+                status_msg,
+                workflow_manager.active_workflows
+            )
 
         # 事件绑定
         submit_btn.click(
@@ -544,6 +722,13 @@ def create_gradio_interface():
 
         clear_btn.click(
             handle_clear,
+            outputs=[chatbot, results_gallery, files_output, status_info, active_workflows_info]
+        )
+
+        # 绑定定时器事件
+        timer.tick(
+            handle_timer_tick,
+            inputs=[chatbot, results_gallery, files_output],
             outputs=[chatbot, results_gallery, files_output, status_info, active_workflows_info]
         )
 

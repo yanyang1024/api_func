@@ -796,7 +796,8 @@ def create_gradio_interface():
             workflow_manager.conversation_history.clear()
             workflow_manager.last_workflow_info.clear()
             workflow_manager.last_interaction_time.clear()
-            return [], [], "对话已清空", {}
+            # 返回5个值以匹配 outputs: [chatbot, results_gallery, files_output, status_info, active_workflows_info]
+            return [], [], [], "对话已清空", {}
 
         def handle_refresh(history, gallery_images, file_paths):
             """手动刷新工作流状态"""

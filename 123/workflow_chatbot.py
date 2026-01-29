@@ -678,46 +678,297 @@ def create_gradio_interface():
     """创建 Gradio 界面"""
 
     custom_css = """
-    .chat-container {
-        height: 600px;
+    /* 全局样式 */
+    .gradio-container {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+        min-height: 100vh;
     }
-    .message {
-        padding: 10px;
-        margin: 5px 0;
-        border-radius: 8px;
+
+    /* 主容器 */
+    .gradio-container > .main {
+        background-color: rgba(255, 255, 255, 0.95);
+        border-radius: 20px;
+        padding: 30px;
+        margin: 20px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    }
+
+    /* 标题样式 */
+    .gradio-container .markdown {
+        color: #2d3748;
+        font-size: 16px;
+    }
+
+    /* 聊天界面 */
+    .chatbot {
+        background: linear-gradient(to bottom, #f7fafc, #edf2f7);
+        border-radius: 16px !important;
+        box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.06);
+        border: 2px solid #e2e8f0;
+    }
+
+    /* 用户消息气泡 */
+    .chatbot .user-message {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+        color: white !important;
+        border-radius: 18px 18px 4px 18px !important;
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        margin: 8px 0;
+        padding: 12px 16px;
+    }
+
+    /* 机器人消息气泡 */
+    .chatbot .bot-message {
+        background: white !important;
+        color: #2d3748 !important;
+        border-radius: 18px 18px 18px 4px !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        border: 2px solid #e2e8f0;
+        margin: 8px 0;
+        padding: 12px 16px;
+    }
+
+    /* 输入框样式 */
+    .gradio-container input[type="text"], .gradio-container textarea {
+        background-color: white;
+        border: 2px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 12px 16px;
+        font-size: 15px;
+        transition: all 0.3s ease;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    }
+
+    .gradio-container input[type="text"]:focus, .gradio-container textarea:focus {
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        outline: none;
+    }
+
+    /* 按钮样式 */
+    .gradio-container button {
+        border-radius: 12px !important;
+        font-weight: 600 !important;
+        transition: all 0.3s ease !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
+        border: none !important;
+        padding: 10px 20px !important;
+        font-size: 14px !important;
+    }
+
+    .gradio-container button:hover {
+        transform: translateY(-2px) !important;
+        box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15) !important;
+    }
+
+    .gradio-container button:active {
+        transform: translateY(0) !important;
+    }
+
+    /* 主要按钮 */
+    .gradio-container button.primary {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+        color: white !important;
+    }
+
+    .gradio-container button.primary:hover {
+        background: linear-gradient(135deg, #5568d3 0%, #6b3f8f 100%) !important;
+    }
+
+    /* 次要按钮 */
+    .gradio-container button.secondary {
+        background: linear-gradient(135deg, #48bb78 0%, #38a169 100%) !important;
+        color: white !important;
+    }
+
+    .gradio-container button.secondary:hover {
+        background: linear-gradient(135deg, #38a169 0%, #2f855a 100%) !important;
+    }
+
+    /* 停止按钮 */
+    .gradio-container button.stop {
+        background: linear-gradient(135deg, #fc8181 0%, #f56565 100%) !important;
+        color: white !important;
+    }
+
+    .gradio-container button.stop:hover {
+        background: linear-gradient(135deg, #f56565 0%, #e53e3e 100%) !important;
+    }
+
+    /* 图库样式 */
+    #results_gallery {
+        background: linear-gradient(to bottom, #f7fafc, #edf2f7);
+        border-radius: 16px;
+        padding: 16px;
+        border: 2px solid #e2e8f0;
+        box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.06);
+    }
+
+    /* 折叠面板样式 */
+    .gradio-container .accordion {
+        border: 2px solid #e2e8f0;
+        border-radius: 12px;
+        background-color: #f7fafc;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    }
+
+    .gradio-container .accordion button {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+        color: white !important;
+        font-weight: 600 !important;
+    }
+
+    /* 示例区域样式 */
+    .gradio-container .examples {
+        background: linear-gradient(135deg, #f6f8fb 0%, #f1f5f9 100%);
+        border-radius: 16px;
+        padding: 20px;
+        border: 2px dashed #cbd5e0;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    }
+
+    /* 标签样式 */
+    .gradio-container label {
+        color: #4a5568;
+        font-weight: 600;
+        font-size: 14px;
+        margin-bottom: 8px;
+    }
+
+    /* 文件上传区域 */
+    .gradio-container .file-container {
+        border: 2px dashed #cbd5e0;
+        border-radius: 12px;
+        background: linear-gradient(to bottom, #f7fafc, #edf2f7);
+        padding: 20px;
+        transition: all 0.3s ease;
+    }
+
+    .gradio-container .file-container:hover {
+        border-color: #667eea;
+        background: linear-gradient(to bottom, #edf2f7, #e2e8f0);
+    }
+
+    /* 滚动条样式 */
+    ::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+    }
+
+    ::-webkit-scrollbar-track {
+        background: #f1f1f1;
+        border-radius: 10px;
+    }
+
+    ::-webkit-scrollbar-thumb {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 10px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+        background: linear-gradient(135deg, #5568d3 0%, #6b3f8f 100%);
+    }
+
+    /* 动画效果 */
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    .gradio-container > .main {
+        animation: fadeIn 0.5s ease-out;
+    }
+
+    /* 状态指示器 */
+    .status-indicator {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        margin-right: 8px;
+        animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+
+    /* 响应式设计 */
+    @media (max-width: 768px) {
+        .gradio-container > .main {
+            padding: 15px;
+            margin: 10px;
+        }
     }
     """
 
-    with gr.Blocks(css=custom_css, title="工作流对话机器人") as app:
+    with gr.Blocks(css=custom_css, title="🤖 智能工作流助手", theme=gr.themes.Soft()) as app:
 
-        gr.Markdown("# 🤖 工作流对话机器人")
-        gr.Markdown("支持与工作流智能体的多轮对话，自动处理中断和恢复状态")
-        gr.Markdown("⚙️ **优化特性：** 智能轮询机制确保每次输入都能得到响应 | 自动超时和错误处理 | 点击「🔄 刷新状态」按钮检查工作流进度")
+        # 顶部标题区
+        gr.HTML("""
+        <div style="text-align: center; margin-bottom: 30px; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);">
+            <h1 style="color: white; margin: 0; font-size: 36px; font-weight: 700;">🤖 智能工作流助手</h1>
+            <p style="color: rgba(255, 255, 255, 0.9); margin: 10px 0 0 0; font-size: 16px;">
+                支持 AI 智能体的多轮对话 · 自动处理中断和恢复状态 · 实时结果展示
+            </p>
+        </div>
+        """)
+
+        # 特性说明
+        gr.HTML("""
+        <div style="background: linear-gradient(135deg, #f6f8fb 0%, #f1f5f9 100%); padding: 15px 20px; border-radius: 12px; margin-bottom: 20px; border-left: 4px solid #667eea; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);">
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <span style="color: #667eea; font-weight: 600;">⚡ 优化特性：</span>
+                <span style="color: #4a5568;">智能轮询机制</span>
+                <span style="color: #cbd5e0;">•</span>
+                <span style="color: #4a5568;">自动超时处理</span>
+                <span style="color: #cbd5e0;">•</span>
+                <span style="color: #4a5568;">实时状态刷新</span>
+                <span style="color: #cbd5e0;">•</span>
+                <span style="color: #4a5568;">可视化结果展示</span>
+            </div>
+        </div>
+        """)
 
         with gr.Row():
+            # 左侧：对话区域
             with gr.Column(scale=2):
                 chatbot = gr.Chatbot(
-                    label="对话历史",
+                    label="💬 对话历史",
                     height=500,
                     bubble_full_width=False,
-                    avatar_images=(None, "🤖")
+                    avatar_images=(None, "🤖"),
+                    show_label=True
                 )
 
                 with gr.Row():
-                    msg_input = gr.Textbox(
-                        label="输入消息",
-                        placeholder="请输入您的需求...",
-                        scale=4,
-                        lines=2
-                    )
-                    submit_btn = gr.Button("发送", variant="primary", scale=1)
-                    refresh_btn = gr.Button("🔄 刷新状态", variant="secondary", scale=1)
-                    clear_btn = gr.Button("清空对话", variant="stop", scale=1)
+                    with gr.Column(scale=4):
+                        msg_input = gr.Textbox(
+                            label="",
+                            placeholder="✨ 请输入您的需求...（支持自然语言描述）",
+                            lines=2,
+                            show_label=False,
+                            container=False
+                        )
+                    with gr.Column(scale=1, min_width=120):
+                        submit_btn = gr.Button("📤 发送", variant="primary", size="lg")
 
+                with gr.Row():
+                    refresh_btn = gr.Button("🔄 刷新状态", variant="secondary", scale=1)
+                    clear_btn = gr.Button("🗑️ 清空对话", variant="stop", scale=1)
+
+            # 右侧：结果展示区域
             with gr.Column(scale=1):
-                gr.Markdown("### 📊 结果展示")
+                gr.HTML("""
+                <div style="text-align: center; margin: 15px 0; padding: 12px; background: linear-gradient(135deg, #48bb78 0%, #38a169 100%); border-radius: 12px; box-shadow: 0 4px 12px rgba(72, 187, 120, 0.3);">
+                    <h3 style="color: white; margin: 0; font-size: 18px; font-weight: 600;">📊 分析结果</h3>
+                </div>
+                """)
+
                 results_gallery = gr.Gallery(
-                    label="生成的图表",
+                    label="📈 生成的图表",
                     show_label=True,
                     elem_id="results_gallery",
                     columns=1,
@@ -726,36 +977,52 @@ def create_gradio_interface():
                     object_fit="contain"
                 )
 
-                gr.Markdown("### 📁 生成的文件")
+                gr.HTML("""
+                <div style="text-align: center; margin: 20px 0 10px 0; padding: 10px; background: linear-gradient(135deg, #4299e1 0%, #3182ce 100%); border-radius: 12px; box-shadow: 0 4px 12px rgba(66, 153, 225, 0.3);">
+                    <h3 style="color: white; margin: 0; font-size: 16px; font-weight: 600;">📁 生成文件</h3>
+                </div>
+                """)
+
                 files_output = gr.File(
-                    label="下载文件",
+                    label="",
                     file_count="multiple",
-                    interactive=False
+                    interactive=False,
+                    show_label=False
                 )
 
-        # 状态信息
-        with gr.Accordion("🔧 状态信息", open=False):
-            status_info = gr.Textbox(
-                label="当前状态",
-                value="准备就绪",
-                interactive=False
-            )
-            active_workflows_info = gr.JSON(
-                label="活跃的工作流",
-                value={}
-            )
+        # 状态信息区域
+        with gr.Accordion("🔧 系统状态信息", open=False):
+            with gr.Row():
+                with gr.Column():
+                    status_info = gr.Textbox(
+                        label="📊 当前状态",
+                        value="✅ 系统准备就绪",
+                        interactive=False
+                    )
+                with gr.Column():
+                    active_workflows_info = gr.JSON(
+                        label="🔄 活跃的工作流",
+                        value={},
+                        visible=True
+                    )
 
-        # 示例问题
-        gr.Markdown("### 💡 示例问题")
+        # 示例问题区域
+        gr.HTML("""
+        <div style="text-align: center; margin: 25px 0 15px 0; padding: 12px; background: linear-gradient(135deg, #ed8936 0%, #dd6b20 100%); border-radius: 12px; box-shadow: 0 4px 12px rgba(237, 137, 54, 0.3);">
+            <h3 style="color: white; margin: 0; font-size: 18px; font-weight: 600;">💡 快速开始 - 点击示例</h3>
+        </div>
+        """)
+
         examples = gr.Examples(
             examples=[
                 ["帮我对比分析一下数据集A和数据集B的差异"],
-                ["对销售数据进行统计分析"],
-                ["分析过去一年的数据趋势"],
-                ["计算各个变量之间的相关性"]
+                ["对销售数据进行统计分析，生成可视化报告"],
+                ["分析过去一年的数据趋势，并预测未来走向"],
+                ["计算各个变量之间的相关性，绘制热力图"]
             ],
             inputs=msg_input,
-            label="点击示例快速开始"
+            label=None,
+            examples_per_page=4
         )
 
         def handle_submit(user_input, history):

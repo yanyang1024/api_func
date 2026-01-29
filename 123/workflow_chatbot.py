@@ -236,13 +236,14 @@ def compare_workflow_info(info1: Dict, info2: Dict) -> bool:
 
     return normalize_info(info1) == normalize_info(info2)
 
-def poll_workflow_info(run_id: str, max_retries: int = 10, retry_interval: float = 1.0) -> Tuple[Dict, int]:
+def poll_workflow_info(run_id: str, max_retries: int = 15, initial_interval: float = 0.5) -> Tuple[Dict, int]:
     """
     轮询工作流信息直到有更新或达到最大重试次数
+    使用智能退避策略：初始间隔短，逐渐增加间隔
     参数:
         run_id: 工作流ID
-        max_retries: 最大重试次数（默认10次）
-        retry_interval: 重试间隔秒数（默认1秒）
+        max_retries: 最大重试次数（默认15次）
+        initial_interval: 初始重试间隔秒数（默认0.5秒）
     返回: (workflow_info, attempts) - 工作流信息和实际尝试次数
     """
     print(f"[INFO] 开始轮询工作流 {run_id} 的信息更新...")
@@ -255,6 +256,12 @@ def poll_workflow_info(run_id: str, max_retries: int = 10, retry_interval: float
             # 获取最新状态
             workflow_info = get_workflow_info(run_id)
 
+            # 快速退出：如果状态是 completed，立即返回
+            if workflow_info.get("status") == "completed":
+                print(f"[INFO] 第 {attempt} 次查询: 工作流已完成，立即返回")
+                workflow_manager.save_last_workflow_info(run_id, workflow_info)
+                return workflow_info, attempt
+
             # 检查信息是否有变化
             if last_info is None or not compare_workflow_info(last_info, workflow_info):
                 # 信息有变化或首次获取
@@ -262,14 +269,22 @@ def poll_workflow_info(run_id: str, max_retries: int = 10, retry_interval: float
                 workflow_manager.save_last_workflow_info(run_id, workflow_info)
                 return workflow_info, attempt
 
-            # 信息未变化，继续轮询
-            print(f"[INFO] 第 {attempt} 次查询: 工作流信息未变化，等待 {retry_interval} 秒后重试...")
-            time.sleep(retry_interval)
+            # 信息未变化，使用指数退避策略计算等待时间
+            # 前5次使用0.5秒，之后逐渐增加到最大2秒
+            if attempt <= 5:
+                current_interval = initial_interval
+            else:
+                current_interval = min(initial_interval * (1.5 ** (attempt - 5)), 2.0)
+
+            print(f"[INFO] 第 {attempt} 次查询: 工作流信息未变化，等待 {current_interval:.1f} 秒后重试...")
+            time.sleep(current_interval)
 
         except Exception as e:
             print(f"[ERROR] 第 {attempt} 次查询失败: {str(e)}")
             if attempt < max_retries:
-                time.sleep(retry_interval)
+                # 出错时也使用退避策略
+                current_interval = min(initial_interval * (1.2 ** attempt), 2.0)
+                time.sleep(current_interval)
             else:
                 # 最后一次尝试失败，返回错误信息
                 return {
@@ -446,8 +461,11 @@ def format_timeout_response(workflow_info: Dict, run_id: str, attempts: int) -> 
     message = workflow_info.get("message", "工作流正在处理中")
     status = workflow_info.get("status", "unknown")
 
+    # 估算等待时间（使用智能退避策略）
+    estimated_wait_time = sum(0.5 if i <= 5 else min(0.5 * (1.5 ** (i - 5)), 2.0) for i in range(1, attempts + 1))
+
     response = f"⏳ **工作流响应超时**\n\n"
-    response += f"抱歉，在工作流处理过程中等待了 {attempts} 次查询（约 {attempts} 秒），\n"
+    response += f"抱歉，在工作流处理过程中等待了 {attempts} 次查询（约 {estimated_wait_time:.1f} 秒），\n"
     response += f"但工作流状态没有更新。\n\n"
     response += f"**当前状态**: {status}\n"
     response += f"**最新消息**: {message}\n\n"
@@ -552,12 +570,16 @@ def process_user_message(user_input: str, history: List) -> Tuple[List, List, Li
         # 添加用户输入到历史
         workflow_manager.add_to_history(active_run_id, "user", user_input)
 
+        # 清除旧的缓存状态，确保能检测到工作流恢复后的变化
+        workflow_manager.last_workflow_info.pop(active_run_id, None)
+        print(f"[DEBUG] 已清除旧的缓存状态，准备检测新状态")
+
         # 恢复工作流
         resume_workflow(user_input, active_run_id)
 
-        # 使用轮询机制获取更新后的工作流信息（最多等待30秒）
-        # 参数: run_id, max_retries=30, retry_interval=1.0
-        workflow_info, attempts = poll_workflow_info(active_run_id, max_retries=30, retry_interval=1.0)
+        # 使用优化的轮询机制获取更新后的工作流信息（最多等待约7.5秒）
+        # 参数: run_id, max_retries=15, initial_interval=0.5
+        workflow_info, attempts = poll_workflow_info(active_run_id, max_retries=15, initial_interval=0.5)
 
         # 更新状态
         workflow_manager.save_workflow_state(active_run_id, workflow_info)
@@ -572,7 +594,7 @@ def process_user_message(user_input: str, history: List) -> Tuple[List, List, Li
 
         elif workflow_info.get("status") == "interrupted":
             # 仍然中断
-            if attempts >= 30:
+            if attempts >= 15:
                 # 达到最大重试次数，信息仍未变化，返回超时响应
                 response = format_timeout_response(workflow_info, active_run_id, attempts)
                 workflow_manager.add_to_history(active_run_id, "assistant", response)
@@ -611,8 +633,8 @@ def process_user_message(user_input: str, history: List) -> Tuple[List, List, Li
         # 初始化工作流状态
         workflow_manager.add_to_history(run_id, "user", user_input)
 
-        # 使用轮询机制获取工作流信息（最多等待30秒）
-        workflow_info, attempts = poll_workflow_info(run_id, max_retries=30, retry_interval=1.0)
+        # 使用优化的轮询机制获取工作流信息（最多等待约7.5秒）
+        workflow_info, attempts = poll_workflow_info(run_id, max_retries=15, initial_interval=0.5)
 
         # 保存状态
         workflow_manager.save_workflow_state(run_id, workflow_info)
@@ -627,7 +649,7 @@ def process_user_message(user_input: str, history: List) -> Tuple[List, List, Li
 
         elif workflow_info.get("status") == "interrupted":
             # 中断状态
-            if attempts >= 30:
+            if attempts >= 15:
                 # 启动后立即超时，说明工作流可能有问题
                 response = format_timeout_response(workflow_info, run_id, attempts)
                 workflow_manager.add_to_history(run_id, "assistant", response)

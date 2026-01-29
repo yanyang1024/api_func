@@ -263,8 +263,8 @@ def should_notify_user(run_id: str, new_info: Dict) -> bool:
 
 def check_interrupted_workflows(history: List) -> Tuple[List, List, List]:
     """
-    定时检查中断的工作流状态
-    这个函数会被 Gradio Timer 定期调用
+    检查中断的工作流状态
+    这个函数会被「刷新状态」按钮调用
     返回: (updated_history, display_images, file_paths)
     """
     display_images = []
@@ -568,7 +568,7 @@ def create_gradio_interface():
 
         gr.Markdown("# 🤖 工作流对话机器人")
         gr.Markdown("支持与工作流智能体的多轮对话，自动处理中断和恢复状态")
-        gr.Markdown("⚙️ **优化特性：** 中断状态自动刷新，相同信息只提示一次")
+        gr.Markdown("⚙️ **优化特性：** 相同信息只提示一次，点击「🔄 刷新状态」按钮检查工作流进度")
 
         with gr.Row():
             with gr.Column(scale=2):
@@ -587,7 +587,8 @@ def create_gradio_interface():
                         lines=2
                     )
                     submit_btn = gr.Button("发送", variant="primary", scale=1)
-                    clear_btn = gr.Button("清空对话", variant="secondary", scale=1)
+                    refresh_btn = gr.Button("🔄 刷新状态", variant="secondary", scale=1)
+                    clear_btn = gr.Button("清空对话", variant="stop", scale=1)
 
             with gr.Column(scale=1):
                 gr.Markdown("### 📊 结果展示")
@@ -673,12 +674,8 @@ def create_gradio_interface():
             workflow_manager.last_interaction_time.clear()
             return [], [], "对话已清空", {}
 
-        # 定时检查中断工作流状态
-        # 每 5 秒检查一次中断的工作流（可根据需要调整间隔时间）
-        timer = gr.Timer(value=5.0)
-
-        def handle_timer_tick(history, gallery_images, file_paths):
-            """处理定时器触发事件"""
+        def handle_refresh(history, gallery_images, file_paths):
+            """手动刷新工作流状态"""
             updated_history, new_images, new_files = check_interrupted_workflows(history)
 
             # 合并图片和文件
@@ -725,9 +722,9 @@ def create_gradio_interface():
             outputs=[chatbot, results_gallery, files_output, status_info, active_workflows_info]
         )
 
-        # 绑定定时器事件
-        timer.tick(
-            handle_timer_tick,
+        # 绑定刷新按钮事件
+        refresh_btn.click(
+            handle_refresh,
             inputs=[chatbot, results_gallery, files_output],
             outputs=[chatbot, results_gallery, files_output, status_info, active_workflows_info]
         )

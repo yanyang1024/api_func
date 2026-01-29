@@ -236,6 +236,55 @@ def compare_workflow_info(info1: Dict, info2: Dict) -> bool:
 
     return normalize_info(info1) == normalize_info(info2)
 
+def poll_workflow_info(run_id: str, max_retries: int = 10, retry_interval: float = 1.0) -> Tuple[Dict, int]:
+    """
+    轮询工作流信息直到有更新或达到最大重试次数
+    参数:
+        run_id: 工作流ID
+        max_retries: 最大重试次数（默认10次）
+        retry_interval: 重试间隔秒数（默认1秒）
+    返回: (workflow_info, attempts) - 工作流信息和实际尝试次数
+    """
+    print(f"[INFO] 开始轮询工作流 {run_id} 的信息更新...")
+
+    # 获取当前保存的状态作为基准
+    last_info = workflow_manager.get_last_workflow_info(run_id)
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            # 获取最新状态
+            workflow_info = get_workflow_info(run_id)
+
+            # 检查信息是否有变化
+            if last_info is None or not compare_workflow_info(last_info, workflow_info):
+                # 信息有变化或首次获取
+                print(f"[INFO] 第 {attempt} 次查询: 工作流信息已更新")
+                workflow_manager.save_last_workflow_info(run_id, workflow_info)
+                return workflow_info, attempt
+
+            # 信息未变化，继续轮询
+            print(f"[INFO] 第 {attempt} 次查询: 工作流信息未变化，等待 {retry_interval} 秒后重试...")
+            time.sleep(retry_interval)
+
+        except Exception as e:
+            print(f"[ERROR] 第 {attempt} 次查询失败: {str(e)}")
+            if attempt < max_retries:
+                time.sleep(retry_interval)
+            else:
+                # 最后一次尝试失败，返回错误信息
+                return {
+                    "run_id": run_id,
+                    "status": "error",
+                    "message": f"查询工作流信息失败: {str(e)}",
+                    "data": {}
+                }, attempt
+
+    # 达到最大重试次数，信息仍未变化
+    print(f"[WARNING] 工作流 {run_id} 在 {max_retries} 次查询后信息仍未变化")
+    workflow_info = get_workflow_info(run_id)  # 最后一次获取
+    workflow_manager.save_last_workflow_info(run_id, workflow_info)
+    return workflow_info, max_retries
+
 def should_notify_user(run_id: str, new_info: Dict) -> bool:
     """
     判断是否应该通知用户
@@ -392,6 +441,35 @@ def format_interrupted_response(workflow_info: Dict, run_id: str) -> str:
 
     return response
 
+def format_timeout_response(workflow_info: Dict, run_id: str, attempts: int) -> str:
+    """格式化超时响应 - 当轮询多次后工作流信息仍未变化时使用"""
+    message = workflow_info.get("message", "工作流正在处理中")
+    status = workflow_info.get("status", "unknown")
+
+    response = f"⏳ **工作流响应超时**\n\n"
+    response += f"抱歉，在工作流处理过程中等待了 {attempts} 次查询（约 {attempts} 秒），\n"
+    response += f"但工作流状态没有更新。\n\n"
+    response += f"**当前状态**: {status}\n"
+    response += f"**最新消息**: {message}\n\n"
+    response += "这可能是因为：\n"
+    response += "1. 工作流正在处理复杂任务，需要更长时间\n"
+    response += "2. 工作流可能遇到了问题\n\n"
+    response += "您可以：\n"
+    response += "- 点击「🔄 刷新状态」按钮手动检查工作流进度\n"
+    response += "- 稍后再试\n"
+    response += "- 提供更多信息以帮助工作流继续"
+
+    return response
+
+def format_error_response(error_msg: str, run_id: str) -> str:
+    """格式化错误响应"""
+    response = f"❌ **工作流出错**\n\n"
+    response += f"抱歉，工作流 {run_id} 遇到了错误：\n\n"
+    response += f"```\n{error_msg}\n```\n\n"
+    response += "请稍后重试或联系技术支持。"
+
+    return response
+
 def format_completed_response(workflow_info: Dict, run_id: str) -> Tuple[str, List, List]:
     """格式化完成状态响应"""
     # 获取解析的参数
@@ -452,6 +530,7 @@ def format_completed_response(workflow_info: Dict, run_id: str) -> Tuple[str, Li
 def process_user_message(user_input: str, history: List) -> Tuple[List, List, List]:
     """
     处理用户消息的主要逻辑
+    使用轮询机制确保每次用户输入都能得到响应
     返回: (updated_history, display_images, file_paths)
     """
     # 检查是否有活跃的工作流
@@ -476,30 +555,36 @@ def process_user_message(user_input: str, history: List) -> Tuple[List, List, Li
         # 恢复工作流
         resume_workflow(user_input, active_run_id)
 
-        # 获取更新后的工作流信息
-        workflow_info = get_workflow_info(active_run_id)
+        # 使用轮询机制获取更新后的工作流信息（最多等待30秒）
+        # 参数: run_id, max_retries=30, retry_interval=1.0
+        workflow_info, attempts = poll_workflow_info(active_run_id, max_retries=30, retry_interval=1.0)
 
         # 更新状态
         workflow_manager.save_workflow_state(active_run_id, workflow_info)
+        workflow_manager.update_interaction_time(active_run_id)
 
-        # 根据状态生成响应
-        if workflow_info.get("status") == "interrupted":
-            # 仍然中断 - 使用状态去重逻辑
-            if should_notify_user(active_run_id, workflow_info):
-                # 信息有变化，通知用户
-                response = format_interrupted_response(workflow_info, active_run_id)
+        # 根据状态和尝试次数生成响应
+        if workflow_info.get("status") == "error":
+            # 查询出错
+            response = format_error_response(workflow_info.get("message", "未知错误"), active_run_id)
+            workflow_manager.add_to_history(active_run_id, "assistant", response)
+            history.append([user_input, response])
+
+        elif workflow_info.get("status") == "interrupted":
+            # 仍然中断
+            if attempts >= 30:
+                # 达到最大重试次数，信息仍未变化，返回超时响应
+                response = format_timeout_response(workflow_info, active_run_id, attempts)
                 workflow_manager.add_to_history(active_run_id, "assistant", response)
                 history.append([user_input, response])
             else:
-                # 信息未变化，不重复提示
-                print(f"[INFO] 工作流 {active_run_id} 信息未变化，跳过重复提示")
-                # 仍然添加用户消息，但不添加助手响应
-                history.append([user_input, None])
+                # 在重试期间得到了更新的中断状态
+                response = format_interrupted_response(workflow_info, active_run_id)
+                workflow_manager.add_to_history(active_run_id, "assistant", response)
+                history.append([user_input, response])
 
         elif workflow_info.get("status") == "completed":
-            # 完成 - 清除状态缓存，确保完成信息能显示
-            workflow_manager.save_last_workflow_info(active_run_id, {})
-
+            # 完成
             response, display_images, file_paths = format_completed_response(workflow_info, active_run_id)
             workflow_manager.add_to_history(active_run_id, "assistant", response)
             history.append([user_input, response])
@@ -513,6 +598,7 @@ def process_user_message(user_input: str, history: List) -> Tuple[List, List, Li
         else:
             # 未知状态
             response = f"⚠️ 未知的工作流状态: {workflow_info.get('status')}"
+            workflow_manager.add_to_history(active_run_id, "assistant", response)
             history.append([user_input, response])
 
     else:
@@ -525,27 +611,43 @@ def process_user_message(user_input: str, history: List) -> Tuple[List, List, Li
         # 初始化工作流状态
         workflow_manager.add_to_history(run_id, "user", user_input)
 
-        # 获取工作流信息
-        workflow_info = get_workflow_info(run_id)
+        # 使用轮询机制获取工作流信息（最多等待30秒）
+        workflow_info, attempts = poll_workflow_info(run_id, max_retries=30, retry_interval=1.0)
 
         # 保存状态
         workflow_manager.save_workflow_state(run_id, workflow_info)
+        workflow_manager.update_interaction_time(run_id)
 
         # 根据状态生成响应
-        if workflow_info.get("status") == "interrupted":
-            # 使用状态去重逻辑
-            should_notify_user(run_id, workflow_info)  # 初始化状态缓存
-            response = format_interrupted_response(workflow_info, run_id)
+        if workflow_info.get("status") == "error":
+            # 查询出错
+            response = format_error_response(workflow_info.get("message", "未知错误"), run_id)
             workflow_manager.add_to_history(run_id, "assistant", response)
             history.append([user_input, response])
 
+        elif workflow_info.get("status") == "interrupted":
+            # 中断状态
+            if attempts >= 30:
+                # 启动后立即超时，说明工作流可能有问题
+                response = format_timeout_response(workflow_info, run_id, attempts)
+                workflow_manager.add_to_history(run_id, "assistant", response)
+                history.append([user_input, response])
+            else:
+                # 正常的中断状态
+                response = format_interrupted_response(workflow_info, run_id)
+                workflow_manager.add_to_history(run_id, "assistant", response)
+                history.append([user_input, response])
+
         elif workflow_info.get("status") == "completed":
+            # 完成
             response, display_images, file_paths = format_completed_response(workflow_info, run_id)
             workflow_manager.add_to_history(run_id, "assistant", response)
             history.append([user_input, response])
 
         else:
+            # 未知状态
             response = f"⚠️ 未知的工作流状态: {workflow_info.get('status')}"
+            workflow_manager.add_to_history(run_id, "assistant", response)
             history.append([user_input, response])
 
     return history, display_images, file_paths
@@ -568,7 +670,7 @@ def create_gradio_interface():
 
         gr.Markdown("# 🤖 工作流对话机器人")
         gr.Markdown("支持与工作流智能体的多轮对话，自动处理中断和恢复状态")
-        gr.Markdown("⚙️ **优化特性：** 相同信息只提示一次，点击「🔄 刷新状态」按钮检查工作流进度")
+        gr.Markdown("⚙️ **优化特性：** 智能轮询机制确保每次输入都能得到响应 | 自动超时和错误处理 | 点击「🔄 刷新状态」按钮检查工作流进度")
 
         with gr.Row():
             with gr.Column(scale=2):

@@ -1,0 +1,154 @@
+# Local Agent Configuration File
+# 这是一个教学性质的配置文件，展示了如何配置本地 AI Agent
+
+# ===============================
+# Agent 基本配置
+# ===============================
+agent:
+  name: "local-assistant"
+  workspace: "./workspace"
+
+  # ===============================
+  # 模型配置
+  # ===============================
+  model:
+    # 使用的提供商：ollama（本地部署）
+    provider: "ollama"
+
+    # 模型名称（需要在 Ollama 中已安装）
+    # 常用模型：
+    # - llama3.1:8b (8B 参数，平衡性能和质量)
+    # - llama3.1:70b (70B 参数，高质量但需要更多资源)
+    # - qwen2.5:7b (7B 参数，中文支持好)
+    # - mistral:7b (7B 参数，轻量高效)
+    name: "llama3.1:8b"
+
+    # Ollama API 地址
+    baseUrl: "http://localhost:11434"
+
+    # 上下文窗口大小（tokens）
+    contextWindow: 128000
+
+    # 生成温度（0-2，越高越随机）
+    temperature: 0.7
+
+  # ===============================
+  # 推理配置
+  # ===============================
+  thinking:
+    # 默认推理级别
+    # - off: 无扩展思考，快速响应
+    # - low: 简短思考
+    # - medium: 中等思考（推荐）
+    # - high: 深度思考，适合复杂任务
+    default: "medium"
+
+    # 最大推理 tokens 数
+    maxTokens: 8000
+
+  # ===============================
+  # 工具策略
+  # ===============================
+  tools:
+    # 允许使用的工具列表
+    allow:
+      - "read"          # 读取文件
+      - "write"         # 写入文件
+      - "edit"          # 编辑文件
+      - "exec"          # 执行 shell 命令
+      - "local_service" # 调用本地服务
+      - "memory_search" # 搜索记忆
+      - "web_search"    # 网络搜索（可选）
+
+    # 安全级别
+    # - deny: 拒绝所有工具
+    # - allowlist: 仅允许列表中的工具（推荐）
+    # - full: 允许所有工具（谨慎使用）
+    security: "allowlist"
+
+    # 询问模式
+    # - off: 不询问，直接执行
+    # - on-miss: 仅当工具不在允许列表时询问
+    # - always: 每次都询问用户
+    ask: "on-miss"
+
+  # ===============================
+  # 本地服务接口
+  # ===============================
+  # 这里定义了 Agent 可以调用的本地服务
+  # 每个服务都是一个 HTTP API，提供特定功能
+  localServices:
+    # 文件系统服务
+    - name: "file_system"
+      endpoint: "http://localhost:3001/api"
+      description: "Local file system operations (list, read, write, delete files)"
+
+    # 数据库服务
+    - name: "database"
+      endpoint: "http://localhost:3002/api"
+      description: "Local database queries (SQLite, PostgreSQL, etc.)"
+
+    # 通知服务
+    - name: "notifications"
+      endpoint: "http://localhost:3003/api"
+      description: "Desktop notification service"
+
+    # 知识库服务
+    - name: "knowledge_base"
+      endpoint: "http://localhost:3004/api"
+      description: "Local knowledge base and document search"
+
+  # ===============================
+  # 记忆配置
+  # ===============================
+  memory:
+    # 是否启用记忆功能
+    enabled: true
+
+    # 记忆存储路径
+    storePath: "./workspace/memory"
+
+    # 向量数据库路径（用于语义搜索）
+    vectorDbPath: "./memory/vectors.db"
+
+    # 文本分块大小
+    chunkSize: 1000
+
+    # 分块重叠大小
+    overlap: 200
+
+  # ===============================
+  # 超时配置
+  # ===============================
+  timeout:
+    # 默认超时时间（秒）
+    default: 300
+
+    # 最大超时时间（秒）
+    max: 600
+
+# ===============================
+# 技能配置
+# ===============================
+skills:
+  # 技能目录路径
+  path: "./workspace/skills"
+
+  # 是否自动扫描技能
+  autoScan: true
+
+  # 技能缓存时间（秒）
+  cacheTime: 300
+
+# ===============================
+# 日志配置
+# ===============================
+logging:
+  # 日志级别: debug, info, warn, error
+  level: "info"
+
+  # 是否输出到控制台
+  console: true
+
+  # 日志文件路径
+  file: "./logs/agent.log"

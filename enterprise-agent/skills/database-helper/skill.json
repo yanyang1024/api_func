@@ -1,0 +1,27 @@
+{
+  "name": "database-helper",
+  "version": "1.0.0",
+  "description": "数据库查询助手技能",
+  "author": "Enterprise Agent",
+  "commands": [
+    {
+      "name": "query",
+      "description": "执行数据库查询",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "sql": {
+            "type": "string",
+            "description": "SQL查询语句"
+          }
+        },
+        "required": ["sql"]
+      }
+    }
+  ],
+  "prompts": [
+    "你可以使用SQL查询来分析数据库中的数据。",
+    "支持的查询类型: SELECT, INSERT, UPDATE, DELETE",
+    "注意: 执行修改操作前请确认影响范围"
+  ]
+}

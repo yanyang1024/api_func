@@ -1,0 +1,32 @@
+# 数据目录
+data/
+
+# 构建输出
+dist/
+
+# 测试数据
+tests/test-data/
+
+# 临时文件
+tmp/
+
+# 日志
+*.log
+npm-debug.log*
+
+# 配置文件
+config.yaml
+!.config.example.yaml
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/

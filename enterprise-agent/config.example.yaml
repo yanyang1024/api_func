@@ -1,0 +1,70 @@
+# Agent配置
+agent:
+  id: default
+  name: 企业智能助手
+  description: 企业内网AI助手，提供文档搜索、任务管理、数据库查询等功能
+
+# Ollama配置
+ollama:
+  host: http://localhost:11434
+  model: qwen2.5:7b
+  embedModel: nomic-embed-text:latest
+  timeout: 120000
+
+# 存储配置
+storage:
+  dataDir: ./data
+  sessionDir: ./data/sessions
+  pluginDir: ./plugins
+  skillDir: ./skills
+
+# 安全配置
+security:
+  safeBins:
+    - /usr/bin
+    - /bin
+  execTimeout: 30000
+  allowDownload: false
+  maxFileSize: 10485760
+
+# 工具配置
+tools:
+  defaultProfile: full
+  profiles:
+    coding:
+      allow:
+        - file_*
+        - db_*
+        - exec
+        - search
+    minimal:
+      allow:
+        - file_read
+        - search
+
+# 服务配置
+services:
+  database:
+    type: sqlite
+    database: ./data/enterprise.db
+  
+  search:
+    type: local
+    index: documents
+  
+  task:
+    storagePath: ./data/tasks
+  
+  notification:
+    type: log
+
+# 渠道配置
+channels:
+  cli:
+    enabled: true
+    adapter: cli
+  webhook:
+    enabled: true
+    adapter: webhook
+    config:
+      url: http://localhost:3000/webhook

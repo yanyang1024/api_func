@@ -1,0 +1,40 @@
+{
+  "name": "enterprise-agent",
+  "version": "1.0.0",
+  "description": "企业内网离线Agent系统 - 基于本地Ollama和私有服务构建",
+  "keywords": ["enterprise", "agent", "ollama", "offline", "intranet"],
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "ent-agent": "./dist/cli/main.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli/main.ts",
+    "start": "node dist/cli/main.js",
+    "test": "vitest",
+    "lint": "eslint src --ext .ts"
+  },
+  "dependencies": {
+    "ollama": "^0.5.0",
+    "commander": "^14.0.0",
+    "chalk": "^5.0.0",
+    "dotenv": "^16.0.0",
+    "uuid": "^9.0.0",
+    "yaml": "^2.0.0",
+    "proper-lockfile": "^4.1.0",
+    "sqlite3": "^5.1.0",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/uuid": "^9.0.0",
+    "@types/proper-lockfile": "^4.1.0",
+    "typescript": "^5.6.0",
+    "tsx": "^4.0.0",
+    "vitest": "^2.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

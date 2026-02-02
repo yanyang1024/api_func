@@ -81,6 +81,19 @@ class APIClient:
                 except Exception as e:
                     print(f"✗ 保存图片失败 {img_data['filename']}: {e}")
 
+        # 保存压缩包
+        if result.get('archive'):
+            try:
+                archive_data = result['archive']
+                if archive_data.get('data'):
+                    archive_content = base64.b64decode(archive_data['data'])
+                    archive_path = os.path.join(output_dir, archive_data['filename'])
+                    with open(archive_path, 'wb') as f:
+                        f.write(archive_content)
+                    print(f"✓ 已保存压缩包: {archive_data['filename']} ({archive_data['size']} bytes)")
+            except Exception as e:
+                print(f"✗ 保存压缩包失败: {e}")
+
     def get_functions_list(self) -> List[Dict]:
         """获取所有可用函数列表"""
         url = f"{self.base_url}/functions"
@@ -323,6 +336,7 @@ def example_7_save_metadata():
         "message": result.get('message'),
         "files_count": len(result.get('files', [])),
         "images_count": len(result.get('images', [])),
+        "has_archive": result.get('archive') is not None,
         "files": [
             {
                 "filename": f['filename'],
@@ -341,6 +355,13 @@ def example_7_save_metadata():
         ]
     }
 
+    if result.get('archive'):
+        metadata['archive'] = {
+            "filename": result['archive']['filename'],
+            "size": result['archive']['size'],
+            "type": result['archive']['content_type']
+        }
+
     os.makedirs("downloads/example7", exist_ok=True)
     with open("downloads/example7/metadata.json", 'w', encoding='utf-8') as f:
         json.dump(metadata, f, indent=2, ensure_ascii=False)
@@ -348,8 +369,53 @@ def example_7_save_metadata():
     print("✓ 元数据已保存到 downloads/example7/metadata.json")
     print(json.dumps(metadata, indent=2, ensure_ascii=False))
 
-    # 同时保存文件和图片
+    # 同时保存文件、图片和压缩包
     client.save_result_files(result, "downloads/example7")
+
+
+def example_8_download_archive():
+    """示例8: 下载压缩包"""
+    print("\n" + "="*60)
+    print("示例8: 下载压缩包")
+    print("="*60)
+
+    client = APIClient()
+
+    result = client.call_function(
+        "/api/function5",
+        title="Archive Test",
+        x_label="Time",
+        y_label="Value",
+        data_points=20,
+        color="red"
+    )
+
+    if result.get('success'):
+        print(f"\n消息: {result.get('message')}")
+        print(f"文件数量: {len(result.get('files', []))}")
+        print(f"图片数量: {len(result.get('images', []))}")
+
+        if result.get('archive'):
+            print(f"\n✓ 压缩包已生成:")
+            print(f"  - 文件名: {result['archive']['filename']}")
+            print(f"  - 大小: {result['archive']['size']} bytes")
+            print(f"  - 类型: {result['archive']['content_type']}")
+
+            # 只保存压缩包
+            os.makedirs("downloads/example8", exist_ok=True)
+            archive_data = result['archive']
+            archive_content = base64.b64decode(archive_data['data'])
+            archive_path = os.path.join("downloads/example8", archive_data['filename'])
+
+            with open(archive_path, 'wb') as f:
+                f.write(archive_content)
+
+            print(f"\n✓ 压缩包已保存到: {archive_path}")
+            print("  你可以直接解压此文件来获取所有输出文件")
+        else:
+            print("\n✗ 未生成压缩包")
+    else:
+        print(f"\n✗ 请求失败: {result.get('error')}")
 
 
 # ==================== 主程序 ====================
@@ -373,6 +439,7 @@ def main():
         example_3_error_handling()
         example_7_save_metadata()
         example_6_with_retry()
+        example_8_download_archive()
 
         # 运行所有函数（需要更多时间）
         choice = input("\n是否运行所有6个函数示例？(y/n): ")
@@ -387,6 +454,7 @@ def main():
         print("  - downloads/example2/")
         print("  - downloads/example6/")
         print("  - downloads/example7/")
+        print("  - downloads/example8/ (压缩包示例)")
 
     except KeyboardInterrupt:
         print("\n\n用户中断")

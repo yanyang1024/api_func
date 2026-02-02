@@ -12,6 +12,9 @@ import base64
 import pandas as pd
 import inspect
 import os
+import zipfile
+import tempfile
+from datetime import datetime
 from functools import wraps
 
 
@@ -47,6 +50,7 @@ class APIResponse(BaseModel):
     data: Optional[Dict[str, Any]] = None
     files: List[Base64File] = []
     images: List[Base64Image] = []
+    archive: Optional[Base64File] = None  # 压缩包文件
     error: Optional[str] = None
 
 
@@ -100,17 +104,31 @@ def process_function_result(result: Dict) -> Dict:
     file_paths = result_data.get("files", [])
     images = result_data.get("images", [])
 
-    # 处理图片
+    # 处理图片 - 支持PIL图片对象和已经是base64字典的图片
     base64_images = []
     for i, img in enumerate(images):
         if isinstance(img, Image.Image):
+            # 如果是PIL图片对象，转换为base64
             base64_images.append(
                 image_to_base64(img, f"image_{i+1}.png")
             )
+        elif isinstance(img, dict):
+            # 如果已经是字典格式（包含data字段），直接使用
+            if 'data' in img:
+                base64_images.append(img)
+            else:
+                # 如果是其他格式的字典，尝试转换
+                try:
+                    base64_images.append(Base64Image(**img))
+                except:
+                    pass
 
-    # 处理文件
+    # 处理文件 - 添加空字符串容错处理
     base64_files = []
     for filepath in file_paths:
+        # 跳过空字符串或None
+        if not filepath or not isinstance(filepath, str) or filepath.strip() == "":
+            continue
         base64_files.append(file_to_base64(filepath))
 
     return {
@@ -119,6 +137,60 @@ def process_function_result(result: Dict) -> Dict:
         "images": base64_images,
         "raw_data": result_data
     }
+
+
+def create_zip_archive(file_paths: List[str], images: List[Base64Image], zip_name: str = None) -> Base64File:
+    """
+    将所有文件和图片打包成ZIP压缩包
+
+    Args:
+        file_paths: 文件路径列表
+        images: Base64Image对象列表
+        zip_name: 压缩包名称（可选）
+
+    Returns:
+        Base64File对象，包含压缩包的base64编码
+    """
+    # 创建临时文件
+    temp_fd, temp_path = tempfile.mkstemp(suffix='.zip')
+    os.close(temp_fd)
+
+    try:
+        with zipfile.ZipFile(temp_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            # 添加文件
+            for filepath in file_paths:
+                if not filepath or not os.path.exists(filepath):
+                    continue
+
+                filename = os.path.basename(filepath)
+                zipf.write(filepath, filename)
+
+            # 添加图片
+            for img in images:
+                img_bytes = base64.b64decode(img.data)
+                zipf.writestr(img.filename, img_bytes)
+
+        # 读取压缩包并转换为base64
+        with open(temp_path, 'rb') as f:
+            zip_content = f.read()
+            zip_base64 = base64.b64encode(zip_content).decode('utf-8')
+
+        # 生成压缩包文件名
+        if not zip_name:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            zip_name = f"output_{timestamp}.zip"
+
+        return Base64File(
+            filename=zip_name,
+            content_type="application/zip",
+            size=len(zip_content),
+            data=zip_base64
+        )
+
+    finally:
+        # 清理临时文件
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
 
 
 # ==================== 函数注册装饰器 ====================
@@ -170,13 +242,36 @@ def register_api_endpoint(route_path: str, func_name: str):
                 # 处理结果
                 processed_result = process_function_result(result)
 
+                # 收集有效的文件路径（用于压缩包）
+                valid_file_paths = []
+                result_data = result.get("result", {})
+                file_paths = result_data.get("files", [])
+
+                for filepath in file_paths:
+                    if filepath and isinstance(filepath, str) and filepath.strip() and os.path.exists(filepath):
+                        valid_file_paths.append(filepath)
+
+                # 创建压缩包（如果有文件或图片）
+                archive = None
+                if valid_file_paths or processed_result["images"]:
+                    try:
+                        archive = create_zip_archive(
+                            valid_file_paths,
+                            processed_result["images"],
+                            zip_name=f"{func_name}_output.zip"
+                        )
+                    except Exception as zip_error:
+                        # 压缩失败不影响主流程，只记录错误
+                        print(f"Warning: Failed to create archive: {zip_error}")
+
                 # 构造响应
                 response = APIResponse(
                     success=True,
                     message=processed_result["message"],
                     data=processed_result.get("raw_data", {}),
                     files=processed_result["files"],
-                    images=processed_result["images"]
+                    images=processed_result["images"],
+                    archive=archive
                 )
 
                 return JSONResponse(content=response.model_dump())

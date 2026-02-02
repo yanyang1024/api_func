@@ -1,7 +1,57 @@
 # 代码修改说明
 
-## 修改日期
-2026-02-02
+## 最新修改日期
+2026-02-02 (更新: 添加文件列表URL功能)
+
+---
+
+## 最新更新：文件列表URL功能 ✓
+
+### 新增功能
+API响应现在包含 `files_url` 字段，提供一个可访问的URL链接，用于在浏览器中查看和下载所有生成的文件和图片。
+
+#### API响应格式（更新）
+```json
+{
+  "success": true,
+  "message": "Processing completed!",
+  "data": {...},
+  "files": [...],
+  "images": [...],
+  "archive": {...},
+  "files_url": "http://localhost:8000/files/{session_id}",  ← 新增
+  "error": null
+}
+```
+
+#### 功能特点
+- 📊 美观的Web界面展示所有文件和图片
+- 🖼️ 图片预览功能（缩略图）
+- ⬇️ 单文件下载和批量下载
+- 📦 一键下载完整压缩包
+- 📋 复制会话ID功能
+- 📱 响应式设计，支持移动端
+
+#### 使用示例
+```python
+import requests
+import webbrowser
+
+response = requests.post("http://localhost:8000/api/function1", json={...})
+result = response.json()
+
+# 获取文件列表URL
+files_url = result.get('files_url')
+
+# 在浏览器中打开
+webbrowser.open(files_url)
+```
+
+详细文档见：[FILES_URL_FEATURE.md](FILES_URL_FEATURE.md)
+
+---
+
+## 原有修改（2026-02-02）
 
 ## 修改内容
 

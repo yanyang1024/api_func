@@ -1,0 +1,76 @@
+# LocalClaw 配置文件示例
+# 复制此文件为 localclaw.yaml 并修改配置
+
+# Ollama 配置
+ollama:
+  host: http://localhost:11434
+  model: qwen2.5:7b-instruct
+  contextWindow: 131072
+  timeout: 120000
+
+# 内网服务配置
+services:
+  # HR 系统
+  hr:
+    enabled: false
+    baseUrl: http://hr.internal.company.com:8080/api
+    apiKey: your-hr-api-key
+
+  # OA 系统
+  oa:
+    enabled: false
+    baseUrl: http://oa.internal.company.com:3000/api
+    apiKey: your-oa-api-key
+
+  # 文件服务器
+  fileServer:
+    enabled: false
+    baseUrl: http://files.internal.company.com:9000
+    token: your-file-token
+
+  # 邮件服务
+  mail:
+    enabled: false
+    smtpHost: mail.internal.company.com
+    smtpPort: 587
+    user: agent@company.com
+    password: your-mail-password
+
+  # 项目管理
+  projectManagement:
+    enabled: false
+    baseUrl: http://pm.internal.company.com:8088/api
+    apiKey: your-pm-api-key
+
+  # 知识库
+  knowledgeBase:
+    enabled: false
+    baseUrl: http://kb.internal.company.com:5000/api
+    apiKey: your-kb-api-key
+
+# Agent 配置
+agent:
+  defaultTimeout: 600000
+  maxHistoryTurns: 50
+  enableSandbox: false
+  sandboxMemory: 512M
+  sandboxCpu: 1.0
+
+# 安全配置
+security:
+  allowedDomains:
+    - "*.internal.company.com"
+  allowedIps:
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+  deniedPatterns:
+    - "rm -rf /"
+    - "rm -rf /*"
+    - "chmod 777"
+    - "mkfs"
+
+# 日志配置
+logging:
+  level: info
+  format: text

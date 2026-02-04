@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.log
+.env
+localclaw.yaml
+!localclaw.yaml.example
+.DS_Store
+*.local
+coverage/
+.nyc_output/

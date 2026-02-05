@@ -17,6 +17,7 @@
 
 from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse, StreamingResponse
+from contextlib import asynccontextmanager
 import httpx
 import asyncio
 import uuid
@@ -291,24 +292,17 @@ class TaskManager:
 
 
 # ==================== FastAPI应用 ====================
-
-app = FastAPI(
-    title="Enhanced Proxy Server",
-    description="支持高并发队列管理和长任务状态跟踪的转发服务",
-    version="2.0.0"
-)
-
 # 全局任务管理器实例
 task_manager: Optional[TaskManager] = None
 target_config = {}
 
 
-@app.on_event("startup")
-async def startup_event():
-    """启动时初始化"""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """应用生命周期管理（兼容新版FastAPI）"""
     global task_manager
 
-    # 从配置读取目标服务器信息
+    # 启动时初始化
     max_concurrent = target_config.get("max_concurrent", 10)
     max_queue_size = target_config.get("max_queue_size", 100)
     num_workers = target_config.get("num_workers", 5)
@@ -322,8 +316,8 @@ async def startup_event():
     # 启动后台工作线程
     asyncio.create_task(
         task_manager.start_workers(
-            target_config["target_host"],
-            target_config["target_port"],
+            target_config.get("target_host", "localhost"),
+            target_config.get("target_port", 8000),
             num_workers
         )
     )
@@ -331,12 +325,25 @@ async def startup_event():
     print(f"\n{'='*70}")
     print(f"增强型转发服务已启动")
     print(f"{'='*70}")
-    print(f"目标服务器: {target_config['target_host']}:{target_config['target_port']}")
-    print(f"监听地址: {target_config['listen_host']}:{target_config['listen_port']}")
+    print(f"目标服务器: {target_config.get('target_host', 'localhost')}:{target_config.get('target_port', 8000)}")
+    print(f"监听地址: {target_config.get('listen_host', '0.0.0.0')}:{target_config.get('listen_port', 8080)}")
     print(f"最大并发数: {max_concurrent}")
     print(f"最大队列大小: {max_queue_size}")
     print(f"工作线程数: {num_workers}")
     print(f"{'='*70}\n")
+
+    yield  # 应用运行中
+
+    # 关闭时清理（如果需要）
+    print("\n增强型转发服务正在关闭...")
+
+
+app = FastAPI(
+    title="Enhanced Proxy Server",
+    description="支持高并发队列管理和长任务状态跟踪的转发服务",
+    version="2.0.0",
+    lifespan=lifespan
+)
 
 
 @app.get("/", summary="服务根路径")

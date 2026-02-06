@@ -13,21 +13,18 @@
 """
 
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse
 import socket
 import argparse
 import sys
 import threading
 import queue
 import time
-import json
-import uuid
 from datetime import datetime
-from typing import Tuple, Optional, Dict
+from typing import Tuple, Optional
 from dataclasses import dataclass, field
 from collections import deque
 import traceback
-import io
 
 # 尝试导入更好的HTTP库
 try:
@@ -155,22 +152,6 @@ class ProxyMetrics:
             'circuit_open': self.circuit_open_since is not None,
             'consecutive_failures': self.consecutive_failures
         }
-
-
-# ==================== 任务结果存储 ====================
-
-task_results: Dict[str, Dict] = {}
-
-def store_task_result(task_id: str, result_data: Dict):
-    """存储任务结果"""
-    task_results[task_id] = {
-        'timestamp': datetime.now().isoformat(),
-        'result': result_data
-    }
-
-def get_task_result(task_id: str) -> Optional[Dict]:
-    """获取任务结果"""
-    return task_results.get(task_id)
 
 
 # ==================== 请求工作池 ====================
@@ -495,10 +476,12 @@ class MetricsProxyHTTPRequestHandler(EnhancedProxyHTTPRequestHandler):
     """带监控端点的代理处理器"""
 
     def do_GET(self):
-        """处理GET请求（包含监控端点和任务结果查询）"""
+        """处理GET请求（包含监控端点）"""
+        # 监控端点
         if self.path == '/proxy-metrics' or self.path == '/proxy-health':
             stats = self.worker_pool.get_stats()
 
+            import json
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.end_headers()
@@ -521,100 +504,8 @@ class MetricsProxyHTTPRequestHandler(EnhancedProxyHTTPRequestHandler):
             }
 
             self.wfile.write(json.dumps(metrics_response, indent=2).encode('utf-8'))
-        elif self.path.startswith('/task-result'):
-            parsed_url = urlparse(self.path)
-            query_params = parse_qs(parsed_url.query)
-            task_id = query_params.get('id', [None])[0]
-
-            if not task_id:
-                response = {
-                    'success': False,
-                    'error': 'Missing required parameter: id'
-                }
-                self.send_response(400)
-                self.send_header('Content-Type', 'application/json')
-                self.end_headers()
-                self.wfile.write(json.dumps(response).encode('utf-8'))
-                return
-
-            task_result = get_task_result(task_id)
-
-            if task_result:
-                response = {
-                    'success': True,
-                    'id': task_id,
-                    'result': task_result.get('result', {}),
-                    'timestamp': task_result.get('timestamp')
-                }
-                status_code = 200
-            else:
-                response = {
-                    'success': False,
-                    'error': f'Task not found: {task_id}'
-                }
-                status_code = 404
-
-            self.send_response(status_code)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps(response).encode('utf-8'))
         else:
             super().do_GET()
-
-    def do_POST(self):
-        """处理POST请求（包含任务结果查询端点）"""
-        if self.path.startswith('/task-result'):
-            content_length = int(self.headers.get('Content-Length', 0))
-            request_body = self.rfile.read(content_length) if content_length > 0 else b'{}'
-
-            try:
-                request_data = json.loads(request_body.decode('utf-8'))
-                task_id = request_data.get('id')
-
-                if not task_id:
-                    response = {
-                        'success': False,
-                        'error': 'Missing required parameter: id'
-                    }
-                    self.send_response(400)
-                    self.send_header('Content-Type', 'application/json')
-                    self.end_headers()
-                    self.wfile.write(json.dumps(response).encode('utf-8'))
-                    return
-
-                task_result = get_task_result(task_id)
-
-                if task_result:
-                    response = {
-                        'success': True,
-                        'id': task_id,
-                        'result': task_result.get('result', {}),
-                        'timestamp': task_result.get('timestamp')
-                    }
-                    status_code = 200
-                else:
-                    response = {
-                        'success': False,
-                        'error': f'Task not found: {task_id}'
-                    }
-                    status_code = 404
-
-                self.send_response(status_code)
-                self.send_header('Content-Type', 'application/json')
-                self.end_headers()
-                self.wfile.write(json.dumps(response).encode('utf-8'))
-
-            except json.JSONDecodeError as e:
-                response = {
-                    'success': False,
-                    'error': f'Invalid JSON: {str(e)}'
-                }
-                self.send_response(400)
-                self.send_header('Content-Type', 'application/json')
-                self.end_headers()
-                self.wfile.write(json.dumps(response).encode('utf-8'))
-        else:
-            super().do_POST()
 
 
 # ==================== 服务器启动 ====================
@@ -653,10 +544,6 @@ def run_proxy_server(config: ProxyConfig):
     print(f"\n监控端点:")
     print(f"  http://{config.listen_host}:{config.listen_port}/proxy-metrics")
     print(f"  http://{config.listen_host}:{config.listen_port}/proxy-health")
-    print(f"\n任务结果查询端点:")
-    print(f"  POST http://{config.listen_host}:{config.listen_port}/task-result")
-    print(f"  请求参数: {{\"id\": \"任务ID\"}}")
-    print(f"  返回: {{\"success\": true, \"id\": \"...\", \"result\": {{...}}, \"timestamp\": \"...\"}}")
     print(f"\n使用方式:")
     print(f"  客户端访问: http://{config.listen_host}:{config.listen_port}/api/function1")
     print(f"  将被转发到:   http://{config.target_host}:{config.target_port}/api/function1")
@@ -690,12 +577,6 @@ def main():
 
   # 查看监控指标
   curl http://localhost:8080/proxy-metrics
-
-  # 查询任务结果
-  curl http://localhost:8080/task-result?id=your_task_id
-
-  # POST查询任务结果
-  curl -X POST http://localhost:8080/task-result -H "Content-Type: application/json" -d '{"id":"your_task_id"}'
         """
     )
 
@@ -805,18 +686,7 @@ def main():
 
     args = parser.parse_args()
 
-    if not args.target_host:
-        parser.error('--target-host is required')
-
-    print("=" * 70)
-    print("参数解析确认")
-    print("=" * 70)
-    print(f"目标服务器: {args.target_host}:{args.target_port}")
-    print(f"监听地址:   {args.listen_host}:{args.listen_port}")
-    print(f"最大并发:   {args.max_concurrent_requests}")
-    print(f"读取超时:   {args.read_timeout}秒")
-    print("=" * 70)
-
+    # 创建配置
     config = ProxyConfig(
         target_host=args.target_host,
         target_port=args.target_port,
@@ -834,6 +704,7 @@ def main():
         circuit_breaker_timeout=args.circuit_breaker_timeout
     )
 
+    # 启动服务器
     run_proxy_server(config)
 
 

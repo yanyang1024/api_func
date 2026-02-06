@@ -505,6 +505,139 @@ async def list_tasks(status: Optional[str] = None, limit: int = 50):
     }
 
 
+@app.post("/api/task/create", summary="创建任务")
+async def create_task(request: Request):
+    """
+    创建新任务并转发到目标服务器
+
+    请求体参数:
+        path: 转发目标路径 (例如: "/api/users")
+        params: 转发参数 (可选)
+        method: HTTP方法 (默认: POST)
+        body: 请求体内容 (可选)
+
+    返回:
+        task_id: 任务ID
+    """
+    if not task_manager:
+        raise HTTPException(status_code=503, detail="任务管理器未初始化")
+
+    try:
+        data = await request.json()
+    except:
+        raise HTTPException(status_code=400, detail="请求体必须是JSON格式")
+
+    path = data.get("path")
+    if not path:
+        raise HTTPException(status_code=400, detail="缺少必需参数: path")
+
+    method = data.get("method", "POST")
+    params = data.get("params", {})
+    body = data.get("body")
+
+    import urllib.parse
+    query_string = urllib.parse.urlencode(params) if params else ""
+
+    full_path = f"{path}?{query_string}" if query_string else path
+
+    headers = dict(request.headers)
+    skip_headers = {'host', 'connection', 'accept-encoding', 'content-length'}
+    headers = {k: v for k, v in headers.items() if k.lower() not in skip_headers}
+
+    if body and isinstance(body, str):
+        body = body.encode('utf-8')
+
+    task_id = await task_manager.create_task(
+        request_data=data,
+        method=method,
+        path=full_path,
+        headers=headers,
+        body=body
+    )
+
+    return TaskResponse(
+        success=True,
+        task_id=task_id,
+        status="pending",
+        message="任务创建成功",
+        data={
+            "task_id": task_id,
+            "path": path,
+            "method": method,
+            "status_url": f"/task/{task_id}",
+            "result_url": f"/api/task/{task_id}/result"
+        }
+    )
+
+
+@app.get("/api/task/{task_id}/result", summary="获取任务完成结果")
+async def get_task_result(task_id: str):
+    """
+    获取已完成任务的返回结果
+
+    Args:
+        task_id: 任务ID
+
+    Returns:
+        任务执行结果(result字段)
+    """
+    if not task_manager:
+        raise HTTPException(status_code=503, detail="任务管理器未初始化")
+
+    task_status = await task_manager.get_task_status(task_id)
+
+    if not task_status:
+        raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+
+    if task_status.status == "pending":
+        return TaskResponse(
+            success=True,
+            task_id=task_id,
+            status=task_status.status,
+            message="任务等待中，尚未开始执行",
+            data={
+                "created_at": task_status.created_at,
+                "status_url": f"/task/{task_id}"
+            }
+        )
+    elif task_status.status == "processing":
+        return TaskResponse(
+            success=True,
+            task_id=task_id,
+            status=task_status.status,
+            message="任务执行中，请稍后查询",
+            data={
+                "created_at": task_status.created_at,
+                "status_url": f"/task/{task_id}"
+            }
+        )
+    elif task_status.status == "failed":
+        return TaskResponse(
+            success=False,
+            task_id=task_id,
+            status=task_status.status,
+            message="任务执行失败",
+            error=task_status.error,
+            data={
+                "created_at": task_status.created_at,
+                "updated_at": task_status.updated_at
+            }
+        )
+    else:
+        return TaskResponse(
+            success=True,
+            task_id=task_id,
+            status=task_status.status,
+            message="任务执行完成",
+            result=task_status.result,
+            data={
+                "created_at": task_status.created_at,
+                "updated_at": task_status.updated_at,
+                "is_long_task": task_status.is_long_task
+            }
+        )
+
+
 @app.delete("/tasks/cleanup", summary="清理旧任务")
 async def cleanup_tasks(max_age_hours: int = 24):
     """
@@ -561,7 +694,7 @@ def run_server(target_host: str, target_port: int,
 
     # 启动服务器
     uvicorn.run(
-        "enhanced_proxy_server:app",
+        app,
         host=listen_host,
         port=listen_port,
         log_level="info",

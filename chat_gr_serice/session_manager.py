@@ -1,8 +1,8 @@
 """
-会话管理器 - 管理用户会话和对话历史
+会话管理器 - 简化版
 """
 import threading
-from typing import Dict, List, Optional, Any
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 from dataclasses import dataclass, field
 
@@ -14,14 +14,6 @@ class Message:
     content: str
     timestamp: datetime = field(default_factory=datetime.now)
     visualization_url: Optional[str] = None
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "role": self.role,
-            "content": self.content,
-            "timestamp": self.timestamp.isoformat(),
-            "visualization_url": self.visualization_url
-        }
 
 
 @dataclass
@@ -35,21 +27,8 @@ class Session:
     created_at: datetime = field(default_factory=datetime.now)
 
     def add_message(self, role: str, content: str, visualization_url: Optional[str] = None):
-        """添加消息到会话"""
-        message = Message(
-            role=role,
-            content=content,
-            visualization_url=visualization_url
-        )
-        self.messages.append(message)
-        return message
-
-    def get_history_text(self) -> str:
-        """获取对话历史的文本格式"""
-        history = []
-        for msg in self.messages:
-            history.append(f"{msg.role}: {msg.content}")
-        return "\n".join(history)
+        """添加消息"""
+        self.messages.append(Message(role, content, visualization_url=visualization_url))
 
 
 class SessionManager:
@@ -58,16 +37,15 @@ class SessionManager:
     def __init__(self):
         self._sessions: Dict[str, Session] = {}
         self._lock = threading.Lock()
-        self._session_counter = 0
+        self._counter = 0
 
     def create_session(self) -> Session:
-        """创建新会话"""
+        """创建会话"""
         with self._lock:
-            self._session_counter += 1
-            session_id = f"session_{self._session_counter}_{int(datetime.now().timestamp())}"
+            self._counter += 1
+            session_id = f"session_{self._counter}_{int(datetime.now().timestamp())}"
             session = Session(session_id=session_id)
             self._sessions[session_id] = session
-            print(f"[SessionManager] 创建会话: {session_id}")
             return session
 
     def get_session(self, session_id: str) -> Optional[Session]:
@@ -75,23 +53,14 @@ class SessionManager:
         with self._lock:
             return self._sessions.get(session_id)
 
-    def delete_session(self, session_id: str) -> bool:
-        """删除会话"""
-        with self._lock:
-            if session_id in self._sessions:
-                del self._sessions[session_id]
-                print(f"[SessionManager] 删除会话: {session_id}")
-                return True
-            return False
-
     def update_session_run_id(self, session_id: str, run_id: str):
-        """更新会话的当前run_id"""
+        """更新run_id"""
         session = self.get_session(session_id)
         if session:
             session.current_run_id = run_id
 
-    def set_waiting_state(self, session_id: str, waiting: bool, context: Optional[Dict[str, Any]] = None):
-        """设置会话等待输入状态"""
+    def set_waiting_state(self, session_id: str, waiting: bool, context: Optional[Dict] = None):
+        """设置等待状态"""
         session = self.get_session(session_id)
         if session:
             session.waiting_for_input = waiting
@@ -102,22 +71,14 @@ class SessionManager:
         with self._lock:
             return list(self._sessions.values())
 
-    def cleanup_old_sessions(self, max_age_hours: int = 24):
-        """清理超时会话"""
+    def delete_session(self, session_id: str) -> bool:
+        """删除会话"""
         with self._lock:
-            now = datetime.now()
-            to_delete = []
-            for session_id, session in self._sessions.items():
-                age = now - session.created_at
-                if age.total_seconds() > max_age_hours * 3600:
-                    to_delete.append(session_id)
-
-            for session_id in to_delete:
+            if session_id in self._sessions:
                 del self._sessions[session_id]
-                print(f"[SessionManager] 清理超时会话: {session_id}")
+                return True
+            return False
 
-            return len(to_delete)
 
-
-# 全局会话管理器实例
+# 全局实例
 session_manager = SessionManager()

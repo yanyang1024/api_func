@@ -1,5 +1,5 @@
 """
-Gradio对话Web应用 - 简化版
+Gradio对话Web应用 - 修复版
 """
 import gradio as gr
 from typing import List, Tuple, Dict, Any
@@ -11,7 +11,7 @@ from async_processor import async_processor
 
 
 # ============================================
-# 核心业务逻辑函数（独立函数，便于测试和复用）
+# 核心业务逻辑函数
 # ============================================
 
 async def workflow_callback(session_id: str, result: Dict[str, Any]):
@@ -43,7 +43,6 @@ def process_user_input(user_message: str, history: List) -> Tuple[List, str, str
 
     # 添加用户消息
     session.add_message("user", user_message)
-    history = format_history(session.messages)
 
     # 判断是新对话还是中断响应
     if session.waiting_for_input and session.current_run_id:
@@ -63,25 +62,27 @@ def process_user_input(user_message: str, history: List) -> Tuple[List, str, str
         status_callback=workflow_callback
     )
 
+    # 返回更新后的对话历史
     return (
-        history,
+        format_history(session.messages),
         "",
-        "**系统状态**: 正在处理...",
+        "**系统状态**: 正在处理，请稍后点击刷新按钮...",
         "等待工作流完成",
         f"**状态**: 处理中\n\n**RunID**: `{run_id}`"
     )
 
 
-def format_history(messages: List) -> List:
-    """格式化消息历史"""
+def format_history(messages: List) -> List[Dict[str, str]]:
+    """
+    格式化消息历史为Gradio 4.0+格式
+    返回: [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
+    """
     formatted = []
     for msg in messages:
-        if msg.role == "user":
-            formatted.append([msg.content, None])
-        elif formatted and formatted[-1][1] is None:
-            formatted[-1][1] = msg.content
-        else:
-            formatted.append([None, msg.content])
+        formatted.append({
+            "role": msg.role,
+            "content": msg.content
+        })
     return formatted
 
 
@@ -113,7 +114,7 @@ def clear_chat() -> Tuple[List, str, str, str, str]:
     """清空对话"""
     session = session_manager.create_session()
     return (
-        [[None, "👋 新会话已创建，请开始对话"]],
+        [],  # 空列表而不是欢迎消息
         "**系统状态**: 已清空",
         "暂无参考信息",
         f"**会话ID**: `{session.session_id}`",
@@ -124,8 +125,9 @@ def clear_chat() -> Tuple[List, str, str, str, str]:
 def create_new_session() -> Tuple[List, str, str]:
     """创建新会话"""
     session = session_manager.create_session()
+    # 返回初始欢迎消息
     return (
-        [[None, "👋 您好！我是智能助手，请告诉我您需要什么帮助？"]],
+        [{"role": "assistant", "content": "👋 您好！我是智能助手，请告诉我您需要什么帮助？"}],
         "**系统状态**: 会话已创建",
         f"**会话ID**: `{session.session_id}`\n\n**状态**: 活跃"
     )
@@ -144,20 +146,31 @@ def build_ui():
 
         # 标题
         gr.Markdown("# 🤖 智能对话工作流系统")
+        gr.Markdown("### 支持异步工作流处理的智能对话系统")
 
         with gr.Row():
             # 左侧：对话区
             with gr.Column(scale=3):
-                chatbot = gr.Chatbot(label="对话历史", height=500)
+                chatbot = gr.Chatbot(
+                    label="对话历史",
+                    height=500,
+                    show_copy_button=True,
+                    bubble_full_width=False
+                )
 
                 with gr.Row():
-                    user_input = gr.Textbox(label="您的输入", placeholder="请输入您的问题...", scale=4, lines=2)
+                    user_input = gr.Textbox(
+                        label="您的输入",
+                        placeholder="请输入您的问题...",
+                        scale=4,
+                        lines=2
+                    )
                     submit_btn = gr.Button("发送", variant="primary", scale=1)
 
                 with gr.Row():
                     clear_btn = gr.Button("清空对话", variant="secondary")
                     new_session_btn = gr.Button("新建会话", variant="secondary")
-                    refresh_btn = gr.Button("🔄 刷新", variant="secondary")
+                    refresh_btn = gr.Button("🔄 刷新状态", variant="secondary")
 
                 status_info = gr.Markdown("**系统状态**: 就绪")
 
